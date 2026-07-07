@@ -21,7 +21,8 @@ import {
   FileCheck,
   Printer,
   Target,
-  Award
+  Award,
+  Edit2
 } from "lucide-react";
 
 interface ReportDashboardProps {
@@ -29,20 +30,42 @@ interface ReportDashboardProps {
   clients: ClientReport[];
   isCompleted: boolean;
   onReset: () => void;
+  onUpdateClients?: (updatedClients: ClientReport[]) => void;
 }
 
 export default function ReportDashboard({ 
   reportType, 
   clients, 
   isCompleted, 
-  onReset 
+  onReset,
+  onUpdateClients
 }: ReportDashboardProps) {
   const [copied, setCopied] = useState(false);
   const [synced, setSynced] = useState(false);
 
+  // Edit / Delete dialog states
+  const [editingClient, setEditingClient] = useState<ClientReport | null>(null);
+  const [editingAccumulated, setEditingAccumulated] = useState<any | null>(null);
+
   // Accumulated states from localStorage
   const [apiKeyLogs, setApiKeyLogs] = useState<any[]>([]);
   const [accumulatedReports, setAccumulatedReports] = useState<any[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string>("전체");
+
+  const parseMonthFromDate = (dateStr?: string) => {
+    if (!dateStr) return "";
+    const parts = dateStr.split(".").map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const year = parts[0];
+      const month = parts[1];
+      return `${year}년 ${month}월`;
+    }
+    const match = dateStr.match(/(\d{4})[-.]\s*(\d{1,2})/);
+    if (match) {
+      return `${match[1]}년 ${parseInt(match[2], 10)}월`;
+    }
+    return "";
+  };
 
   // Reload logs whenever mounts or completion changes
   useEffect(() => {
@@ -55,6 +78,19 @@ export default function ReportDashboard({
       console.error("Failed to load accumulated data:", e);
     }
   }, [isCompleted, clients]);
+
+  const handleDeleteAccumulated = (id: string) => {
+    if (window.confirm("누적 목록에서 이 기록을 영구 삭제하시겠습니까?\n(삭제 시 월간 누적 성과 차트 및 KPI 통계에도 즉시 반영됩니다)")) {
+      const updated = accumulatedReports.filter(r => r.id !== id);
+      localStorage.setItem("crm_accumulated_reports", JSON.stringify(updated));
+      setAccumulatedReports(updated);
+      
+      // Keep current session clients in sync!
+      if (onUpdateClients && clients) {
+        onUpdateClients(clients.filter(c => c.id !== id));
+      }
+    }
+  };
 
   const handleClearHistory = () => {
     if (window.confirm("B2B 누적 보고 데이터 및 API 연동 승인 로그를 모두 초기화하시겠습니까?")) {
@@ -833,8 +869,8 @@ export default function ReportDashboard({
                         </div>
                       </div>
 
-                      {/* Badges */}
-                      <div className="flex gap-1.5">
+                      {/* Badges & Actions */}
+                      <div className="flex gap-2.5 items-center flex-wrap">
                         {isClaimTrack && c.claimSeverity && (
                           <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${
                             c.claimSeverity === "매우 심각" 
@@ -853,6 +889,29 @@ export default function ReportDashboard({
                         }`}>
                           {isCompletedRow ? "실무 보고용 정제 완료" : "정보 대기 중"}
                         </span>
+
+                        {/* Edit & Delete Actions */}
+                        <div className="flex gap-1 items-center no-print ml-1">
+                          <button
+                            onClick={() => setEditingClient(c)}
+                            title="이 고객사 기록 수정"
+                            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 bg-white border border-slate-200 rounded-lg transition cursor-pointer"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (window.confirm("이 고객사 영업 기록을 삭제하시겠습니까?")) {
+                                const updated = clients.filter(item => item.id !== c.id);
+                                if (onUpdateClients) onUpdateClients(updated);
+                              }
+                            }}
+                            title="이 고객사 기록 삭제"
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-200 bg-white border border-slate-200 rounded-lg transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -1009,6 +1068,7 @@ export default function ReportDashboard({
                               <th className="p-3">상담 내용 및 주요 결과 (Outcome)</th>
                               <th className="p-3 w-32">예상 파이프라인</th>
                               <th className="p-3 w-32">특이사항 / 조치기한</th>
+                              <th className="p-3 w-16 text-center no-print">작업</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200 text-slate-800 font-sans">
@@ -1030,6 +1090,29 @@ export default function ReportDashboard({
                                 </td>
                                 <td className="p-3 leading-relaxed whitespace-normal break-words font-bold text-rose-700">
                                   {c.jargon?.action || c.outlier || "기한 내 F/U 예정"}
+                                </td>
+                                <td className="p-3 text-center no-print align-middle">
+                                  <div className="flex gap-1 justify-center">
+                                    <button
+                                      onClick={() => setEditingClient(c)}
+                                      title="기록 수정"
+                                      className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (window.confirm("이 고객사 영업 기록을 삭제하시겠습니까?")) {
+                                          const updated = clients.filter(item => item.id !== c.id);
+                                          if (onUpdateClients) onUpdateClients(updated);
+                                        }
+                                      }}
+                                      title="기록 삭제"
+                                      className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             ))}
@@ -1160,27 +1243,113 @@ export default function ReportDashboard({
             {/* Part 2: 월간 누적 성과 대시보드 (Personal Monthly KPI & Performance Analytics Center) */}
             {accumulatedReports.length > 0 && (
               <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-200 pb-3 gap-2">
                   <div className="flex items-center gap-2">
                     <Target className="w-5 h-5 text-indigo-600" />
                     <span className="text-xs font-black text-slate-800">개인 월간 누적 성과 & KPI 목표 달성도 대시보드</span>
                   </div>
                   <span className="text-[10px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-100 uppercase font-mono">
-                    2026. 07 KPI Active
+                    {selectedMonth === "전체" ? "전체 KPI 누적 집계" : `${selectedMonth} KPI Active`}
                   </span>
                 </div>
 
+                {/* Month Selector Tabs */}
+                {(() => {
+                  const defaultMonths = ["2026년 7월", "2026년 6월", "2026년 5월", "2026년 4월", "2026년 3월"];
+                  const dynamicMonths = Array.from(new Set([
+                    ...defaultMonths,
+                    ...accumulatedReports.map(r => parseMonthFromDate(r.date)).filter(Boolean)
+                  ])).sort((a, b) => b.localeCompare(a));
+
+                  return (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-2 border-b border-slate-100 custom-scrollbar no-print">
+                      <button
+                        onClick={() => setSelectedMonth("전체")}
+                        className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition whitespace-nowrap cursor-pointer border flex items-center gap-1.5 ${
+                          selectedMonth === "전체"
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span>전체 누적</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${
+                          selectedMonth === "전체"
+                            ? "bg-indigo-500 text-white"
+                            : "bg-slate-100 text-slate-500"
+                        }`}>
+                          {accumulatedReports.length}
+                        </span>
+                      </button>
+                      {dynamicMonths.map((m) => {
+                        const count = accumulatedReports.filter(r => parseMonthFromDate(r.date) === m).length;
+                        return (
+                          <button
+                            key={m}
+                            onClick={() => setSelectedMonth(m)}
+                            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition whitespace-nowrap cursor-pointer border flex items-center gap-1.5 ${
+                              selectedMonth === m
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                            }`}
+                          >
+                            <span>{m}</span>
+                            <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${
+                              selectedMonth === m
+                                ? "bg-indigo-500 text-white"
+                                : "bg-slate-100 text-slate-500"
+                            }`}>
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
                 {/* 1. Monthly KPI Goals Grid */}
                 {(() => {
-                  const totalCount = accumulatedReports.length;
-                  const totalRevenue = accumulatedReports.reduce((sum, r) => sum + (r.dealAmountNum || 0), 0);
+                  const filteredReports = selectedMonth === "전체"
+                    ? accumulatedReports
+                    : accumulatedReports.filter(r => parseMonthFromDate(r.date) === selectedMonth);
+
+                  const totalCount = filteredReports.length;
+                  const totalRevenue = filteredReports.reduce((sum, r) => sum + (r.dealAmountNum || 0), 0);
                   const avgSuccessRate = totalCount > 0 
-                    ? Math.round(accumulatedReports.reduce((sum, r) => sum + r.dealProbability, 0) / totalCount)
+                    ? Math.round(filteredReports.reduce((sum, r) => sum + r.dealProbability, 0) / totalCount)
                     : 0;
 
                   // Target baselines
-                  const targetCount = 15; // 15 meetings/deals per month
-                  const targetRevenue = 50000; // 5억 (50000 만원)
+                  const getMonthRevenue = (monthKey: string) => {
+                    const monthReports = accumulatedReports.filter(r => parseMonthFromDate(r.date) === monthKey);
+                    const total = monthReports.reduce((sum, r) => sum + (r.dealAmountNum || 0), 0);
+                    return parseFloat((total / 10000).toFixed(2));
+                  };
+
+                  const realJulyRevenue億 = getMonthRevenue("2026년 7월");
+                  const realJuneRevenue億 = getMonthRevenue("2026년 6월");
+                  const realMayRevenue億 = getMonthRevenue("2026년 5월");
+                  const realAprilRevenue億 = getMonthRevenue("2026년 4월");
+                  const realMarchRevenue億 = getMonthRevenue("2026년 3월");
+
+                  const momMonths = [
+                    { name: "3월", key: "2026년 3월", target: 2.0, actual: realMarchRevenue億 > 0 ? realMarchRevenue億 : 1.8 },
+                    { name: "4월", key: "2026년 4월", target: 3.0, actual: realAprilRevenue億 > 0 ? realAprilRevenue億 : 3.2 },
+                    { name: "5월", key: "2026년 5월", target: 3.5, actual: realMayRevenue億 > 0 ? realMayRevenue億 : 2.8 },
+                    { name: "6월", key: "2026년 6월", target: 4.5, actual: realJuneRevenue億 > 0 ? realJuneRevenue億 : 4.1 },
+                    { name: "7월 (현재)", key: "2026년 7월", target: 5.0, actual: realJulyRevenue億 }
+                  ];
+
+                  const currentTarget = (() => {
+                    if (selectedMonth === "전체") {
+                      return momMonths.reduce((sum, m) => sum + m.target, 0);
+                    }
+                    const found = momMonths.find(m => m.key === selectedMonth);
+                    return found ? found.target : 5.0;
+                  })();
+
+                  const targetCount = selectedMonth === "전체" ? 75 : 15;
+                  const targetRevenue = selectedMonth === "전체" ? 180000 : (currentTarget * 10000); // in 만원
                   const targetSuccessRate = 75; // 75%
 
                   const countPct = Math.min(100, Math.round((totalCount / targetCount) * 100));
@@ -1191,6 +1360,10 @@ export default function ReportDashboard({
                     ? `${(totalRevenue / 10000).toFixed(1)}억원`
                     : `${totalRevenue.toLocaleString()}만원`;
 
+                  const targetRevenueStr = targetRevenue >= 10000
+                    ? `${(targetRevenue / 10000).toFixed(1)}억원`
+                    : `${targetRevenue.toLocaleString()}만원`;
+
                   return (
                     <div className="space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1198,7 +1371,7 @@ export default function ReportDashboard({
                         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
                           <div>
                             <div className="flex justify-between items-center">
-                              <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">누적 계약 및 수집 건수 (Deals)</span>
+                              <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">계약 및 수집 건수 (Deals)</span>
                               <Award className="w-4 h-4 text-amber-500" />
                             </div>
                             <div className="flex items-baseline gap-1.5 mt-2">
@@ -1221,12 +1394,12 @@ export default function ReportDashboard({
                         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
                           <div>
                             <div className="flex justify-between items-center">
-                              <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">누적 제안 매출 가치 (Revenue)</span>
+                              <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">제안 매출 가치 (Revenue)</span>
                               <TrendingUp className="w-4 h-4 text-emerald-500" />
                             </div>
                             <div className="flex items-baseline gap-1.5 mt-2">
                               <span className="text-2xl font-black text-slate-900">{revenueStr}</span>
-                              <span className="text-xs text-slate-400 font-semibold">/ 5.0억원 목표</span>
+                              <span className="text-xs text-slate-400 font-semibold">/ {targetRevenueStr} 목표</span>
                             </div>
                           </div>
                           <div className="mt-4 space-y-1.5">
@@ -1270,16 +1443,6 @@ export default function ReportDashboard({
                         <span className="text-xs font-black text-slate-800 block mb-4">최근 5개월간 목표 대비 매출 달성 추이 (단위: 억원)</span>
                         
                         {(() => {
-                          // Merge real July data with historical months to show a complete gorgeous chart
-                          const realJulyRevenue億 = totalRevenue / 10000;
-                          const momMonths = [
-                            { name: "3월", target: 2.0, actual: 1.8 },
-                            { name: "4월", target: 3.0, actual: 3.2 },
-                            { name: "5월", target: 3.5, actual: 2.8 },
-                            { name: "6월", target: 4.5, actual: 4.1 },
-                            { name: "7월 (현재)", target: 5.0, actual: parseFloat(realJulyRevenue億.toFixed(2)) }
-                          ];
-
                           const maxVal = 6.0; // max 6.0억원 for chart height bounding
 
                           return (
@@ -1310,8 +1473,12 @@ export default function ReportDashboard({
                                     const actualHeight = (m.actual / maxVal) * 110;
                                     const actualY = 130 - actualHeight;
 
+                                    // Highlight if selected or entire
+                                    const isHighlighted = selectedMonth === "전체" || selectedMonth === m.key;
+                                    const barOpacity = isHighlighted ? "1.0" : "0.3";
+
                                     return (
-                                      <g key={mIdx}>
+                                      <g key={mIdx} style={{ opacity: barOpacity, transition: "opacity 0.3s ease" }}>
                                         {/* Target column (slate color outline) */}
                                         <rect 
                                           x={startX} 
@@ -1330,6 +1497,8 @@ export default function ReportDashboard({
                                           height={actualHeight} 
                                           fill={mIdx === 4 ? "#4f46e5" : "#10b981"} 
                                           rx="3"
+                                          stroke={selectedMonth === m.key ? "#f59e0b" : "none"}
+                                          strokeWidth={selectedMonth === m.key ? "1.5" : "0"}
                                         />
 
                                         {/* Value labels */}
@@ -1375,24 +1544,26 @@ export default function ReportDashboard({
                             <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
                             <span className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-200">Personal B2B Sales Coach</span>
                           </div>
-                          <h4 className="text-sm font-black text-white tracking-tight">당월 KPI 달성 극대화를 위한 전술 가이드</h4>
+                          <h4 className="text-sm font-black text-white tracking-tight">
+                            {selectedMonth === "전체" ? "전체 기간 KPI 분석 및 전술 가이드" : `${selectedMonth} KPI 달성 극대화를 위한 전술 가이드`}
+                          </h4>
                           
                           <ul className="text-xs text-indigo-100 leading-relaxed space-y-2 list-none pl-0">
                             {(() => {
                               const tips = [];
                               
-                              if (totalCount < 6) {
+                              if (totalCount < (selectedMonth === "전체" ? 30 : 6)) {
                                 tips.push(
                                   <li key="count" className="flex gap-2">
                                     <span className="text-amber-400 font-extrabold shrink-0">■</span>
-                                    <span>현재 미팅 횟수 및 정보 유입 건수({totalCount}건)가 보완 대상입니다. <strong>신규 리드 PT 기회</strong>를 적극적으로 늘려 월 목표인 15건에 대비해야 합니다.</span>
+                                    <span>현재 미팅 횟수 및 정보 유입 건수({totalCount}건)가 보완 대상입니다. <strong>신규 리드 PT 기회</strong>를 적극적으로 늘려 목표 수치에 대비해야 합니다.</span>
                                   </li>
                                 );
                               } else {
                                 tips.push(
                                   <li key="count-good" className="flex gap-2">
                                     <span className="text-emerald-400 font-extrabold shrink-0">✔</span>
-                                    <span>누적 활동 성실도가 매우 높습니다! 현재 속도를 유지하시면 월간 활동 목표인 15건은 무난히 달성될 것으로 전망됩니다.</span>
+                                    <span>영업 활동 성실도가 매우 높습니다! 현재 속도를 유지하시면 월간 활동 목표 수준은 무난히 달성될 것으로 전망됩니다.</span>
                                   </li>
                                 );
                               }
@@ -1413,18 +1584,19 @@ export default function ReportDashboard({
                                 );
                               }
 
-                              if (totalRevenue < 30000) {
+                              const revenueThreshold = selectedMonth === "전체" ? 150000 : 30000;
+                              if (totalRevenue < revenueThreshold) {
                                 tips.push(
                                   <li key="revenue" className="flex gap-2">
                                     <span className="text-amber-400 font-extrabold shrink-0">■</span>
-                                    <span>누적 수주 파이프라인 볼륨을 보강해야 합니다. 소액 단발성 건 외에 <strong>대형 어카운트(1억원 이상급) 우량 협상 건</strong>을 1건 확보하는 데 초점을 맞추세요.</span>
+                                    <span>수주 파이프라인 볼륨을 보강해야 합니다. 소액 단발성 건 외에 <strong>대형 어카운트(1억원 이상급) 우량 협상 건</strong>을 적극 발굴하세요.</span>
                                   </li>
                                 );
                               } else {
                                 tips.push(
                                   <li key="revenue-good" className="flex gap-2">
                                     <span className="text-emerald-400 font-extrabold shrink-0">✔</span>
-                                    <span>파이프라인 잠재 매출 볼륨({revenueStr})이 견조합니다. 단, 에스컬레이션 리스크가 있는 클레임 건 방어에 소홀히 하지 마십시오.</span>
+                                    <span>파이프라인 잠재 매출 볼륨({revenueStr})이 매우 견조합니다. 단, 에스컬레이션 리스크가 있는 클레임 건 방어에 소홀히 하지 마십시오.</span>
                                   </li>
                                 );
                               }
@@ -1437,8 +1609,13 @@ export default function ReportDashboard({
 
                       {/* 4. Complete Detailed Accumulated Table */}
                       <div className="space-y-2">
-                        <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest px-1">Accumulated B2B CRM Records List</p>
-                        <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white max-h-[250px] custom-scrollbar">
+                        <div className="flex justify-between items-center px-1">
+                          <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
+                            {selectedMonth === "전체" ? "누적 영업 기록 전체 리스트" : `${selectedMonth} 영업 기록 리스트`}
+                          </p>
+                          <span className="text-[10px] text-slate-400 font-bold">총 {totalCount}건</span>
+                        </div>
+                        <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white max-h-[250px] custom-scrollbar font-sans font-medium">
                           <table className="w-full text-left text-[11px] border-collapse">
                             <thead>
                               <tr className="bg-slate-100/80 border-b border-slate-200 font-black text-slate-600">
@@ -1447,10 +1624,11 @@ export default function ReportDashboard({
                                 <th className="p-3">영업 목적 및 제안내용 (실무 정제본)</th>
                                 <th className="p-3">예상 파이프라인</th>
                                 <th className="p-3">수주 예상 성공률</th>
+                                <th className="p-3 w-16 text-center no-print">작업</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                              {accumulatedReports.map((r) => (
+                              {filteredReports.map((r) => (
                                 <tr key={r.id} className="hover:bg-slate-50/50">
                                   <td className="p-3 font-mono text-slate-400">{r.date}</td>
                                   <td className="p-3">
@@ -1479,6 +1657,24 @@ export default function ReportDashboard({
                                         />
                                       </div>
                                       <span className="font-bold text-slate-700 font-mono">{r.dealProbability}%</span>
+                                    </div>
+                                  </td>
+                                  <td className="p-3 text-center no-print">
+                                    <div className="flex gap-1 justify-center">
+                                      <button
+                                        onClick={() => setEditingAccumulated(r)}
+                                        title="기록 수정"
+                                        className="p-1 text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-lg transition cursor-pointer"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteAccumulated(r.id)}
+                                        title="기록 삭제"
+                                        className="p-1 text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
                                     </div>
                                   </td>
                                 </tr>
@@ -1527,6 +1723,380 @@ export default function ReportDashboard({
           >
             새 보고서 작성
           </button>
+        </div>
+      )}
+      {/* Current Client Edit Modal */}
+      {editingClient && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] overflow-y-auto animate-fadeIn no-print">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 space-y-5 text-left">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                <Target className="w-4 h-4 text-indigo-600 animate-pulse" />
+                영업 보고 실무 데이터 실시간 보완 / 수정
+              </h3>
+              <button 
+                onClick={() => setEditingClient(null)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (editingClient) {
+                const updated = clients.map(c => c.id === editingClient.id ? editingClient : c);
+                if (onUpdateClients) {
+                  onUpdateClients(updated);
+                }
+                setEditingClient(null);
+              }
+            }} className="space-y-4 text-xs font-semibold text-slate-700">
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">고객사명</label>
+                <input 
+                  type="text"
+                  required
+                  value={editingClient.name || ""}
+                  onChange={(e) => setEditingClient({ ...editingClient, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">담당자</label>
+                <input 
+                  type="text"
+                  required
+                  value={editingClient.person || ""}
+                  onChange={(e) => setEditingClient({ ...editingClient, person: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              {reportType === "5" && editingClient.claimSeverity !== undefined && (
+                <div className="space-y-1.5">
+                  <label className="text-slate-400 uppercase tracking-wider block text-[10px]">클레임 리스크 심각도</label>
+                  <select
+                    value={editingClient.claimSeverity || "경미"}
+                    onChange={(e) => setEditingClient({ ...editingClient, claimSeverity: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white"
+                  >
+                    <option value="경미">경미</option>
+                    <option value="보통">보통</option>
+                    <option value="심각">심각</option>
+                    <option value="매우 심각">매우 심각</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">영업 목적 및 제안 유형</label>
+                <textarea 
+                  required
+                  rows={2}
+                  value={editingClient.jargon ? editingClient.jargon.purpose : (editingClient.purpose || "")}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (editingClient.jargon) {
+                      setEditingClient({
+                        ...editingClient,
+                        jargon: { ...editingClient.jargon, purpose: val }
+                      });
+                    } else {
+                      setEditingClient({ ...editingClient, purpose: val });
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-semibold text-slate-800 focus:border-indigo-500 focus:bg-white leading-relaxed"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">상담 및 주요 현황 결과</label>
+                <textarea 
+                  required
+                  rows={3}
+                  value={editingClient.jargon ? editingClient.jargon.result : (editingClient.result || "")}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (editingClient.jargon) {
+                      setEditingClient({
+                        ...editingClient,
+                        jargon: { ...editingClient.jargon, result: val }
+                      });
+                    } else {
+                      setEditingClient({ ...editingClient, result: val });
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-semibold text-slate-800 focus:border-indigo-500 focus:bg-white leading-relaxed"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-slate-400 uppercase tracking-wider block text-[10px]">예상 파이프라인 수주액</label>
+                  <input 
+                    type="text"
+                    value={editingClient.jargon ? editingClient.jargon.pipeline : (editingClient.dealAmount || "")}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (editingClient.jargon) {
+                        setEditingClient({
+                          ...editingClient,
+                          jargon: { ...editingClient.jargon, pipeline: val }
+                        });
+                      } else {
+                        setEditingClient({ ...editingClient, dealAmount: val });
+                      }
+                    }}
+                    placeholder="예: 5000만원 또는 1.5억원"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-slate-400 uppercase tracking-wider block text-[10px]">수주 예상 확률 (%)</label>
+                  <input 
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={
+                      (() => {
+                        const probStr = editingClient.dealProbability || "";
+                        const match = probStr.match(/\d+/);
+                        return match ? match[0] : "";
+                      })()
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditingClient({
+                        ...editingClient,
+                        dealProbability: val ? `${val}%` : ""
+                      });
+                    }}
+                    placeholder="예: 70"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">특이사항 및 차주 Action Plan</label>
+                <textarea 
+                  rows={2}
+                  value={editingClient.jargon ? editingClient.jargon.action : (editingClient.outlier || "")}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (editingClient.jargon) {
+                      setEditingClient({
+                        ...editingClient,
+                        jargon: { ...editingClient.jargon, action: val }
+                      });
+                    } else {
+                      setEditingClient({ ...editingClient, outlier: val });
+                    }
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-semibold text-slate-800 focus:border-indigo-500 focus:bg-white leading-relaxed"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingClient(null)}
+                  className="flex-1 py-3 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold transition cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl font-bold transition shadow-md shadow-indigo-100 cursor-pointer animate-pulse"
+                >
+                  수정사항 적용
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Accumulated Client Edit Modal */}
+      {editingAccumulated && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[9999] overflow-y-auto animate-fadeIn no-print">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 space-y-5 text-left">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                <History className="w-4 h-4 text-indigo-600 animate-pulse" />
+                과거 누적 영업 실적 보완 (월간 KPI 연동)
+              </h3>
+              <button 
+                onClick={() => setEditingAccumulated(null)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (editingAccumulated) {
+                // Ensure probability is an integer
+                const probVal = parseInt(String(editingAccumulated.dealProbability), 10) || 0;
+                
+                // Recalculate dealAmountNum from dealAmountStr
+                const amtStr = editingAccumulated.dealAmountStr || "";
+                let amtNum = 0;
+                if (amtStr.includes("억")) {
+                  const match = amtStr.match(/(\d+(?:\.\d+)?)/);
+                  if (match) amtNum = parseFloat(match[1]) * 10000;
+                } else if (amtStr.includes("만")) {
+                  const match = amtStr.replace(/,/g, "").match(/(\d+)/);
+                  if (match) amtNum = parseInt(match[1], 10);
+                } else {
+                  const match = amtStr.replace(/,/g, "").match(/(\d+)/);
+                  if (match) amtNum = parseInt(match[1], 10) / 10000;
+                }
+
+                const finalItem = {
+                  ...editingAccumulated,
+                  dealAmountNum: amtNum || editingAccumulated.dealAmountNum || 0,
+                  dealProbability: probVal
+                };
+
+                const updated = accumulatedReports.map(r => r.id === finalItem.id ? finalItem : r);
+                localStorage.setItem("crm_accumulated_reports", JSON.stringify(updated));
+                setAccumulatedReports(updated);
+
+                // Keep current session clients in sync!
+                if (onUpdateClients && clients) {
+                  const updatedClients = clients.map(c => {
+                    if (c.id === finalItem.id) {
+                      return {
+                        ...c,
+                        name: finalItem.name,
+                        person: finalItem.person,
+                        purpose: finalItem.purpose,
+                        result: finalItem.result,
+                        dealAmount: finalItem.dealAmountStr,
+                        dealProbability: `${finalItem.dealProbability}%`,
+                        claimSeverity: finalItem.claimSeverity,
+                        // update jargon to match edited fields
+                        jargon: c.jargon ? {
+                          ...c.jargon,
+                          purpose: finalItem.purpose,
+                          result: finalItem.result,
+                          pipeline: `금액: ${finalItem.dealAmountStr}\n확률: ${finalItem.dealProbability}%`,
+                        } : undefined
+                      };
+                    }
+                    return c;
+                  });
+                  onUpdateClients(updatedClients);
+                }
+
+                setEditingAccumulated(null);
+              }
+            }} className="space-y-4 text-xs font-semibold text-slate-700">
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">기록 생성 일자</label>
+                <input 
+                  type="text"
+                  required
+                  value={editingAccumulated.date || ""}
+                  onChange={(e) => setEditingAccumulated({ ...editingAccumulated, date: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white font-mono"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">고객사명</label>
+                <input 
+                  type="text"
+                  required
+                  value={editingAccumulated.name || ""}
+                  onChange={(e) => setEditingAccumulated({ ...editingAccumulated, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">담당자</label>
+                <input 
+                  type="text"
+                  required
+                  value={editingAccumulated.person || ""}
+                  onChange={(e) => setEditingAccumulated({ ...editingAccumulated, person: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">영업 목적 및 제안 유형</label>
+                <textarea 
+                  required
+                  rows={2}
+                  value={editingAccumulated.purpose || ""}
+                  onChange={(e) => setEditingAccumulated({ ...editingAccumulated, purpose: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-semibold text-slate-800 focus:border-indigo-500 focus:bg-white leading-relaxed"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-slate-400 uppercase tracking-wider block text-[10px]">상담 및 조치 내용 결과 (Outcome)</label>
+                <textarea 
+                  required
+                  rows={3}
+                  value={editingAccumulated.result || ""}
+                  onChange={(e) => setEditingAccumulated({ ...editingAccumulated, result: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-semibold text-slate-800 focus:border-indigo-500 focus:bg-white leading-relaxed"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-slate-400 uppercase tracking-wider block text-[10px]">예상 파이프라인 수주액</label>
+                  <input 
+                    type="text"
+                    required
+                    value={editingAccumulated.dealAmountStr || ""}
+                    onChange={(e) => setEditingAccumulated({ ...editingAccumulated, dealAmountStr: e.target.value })}
+                    placeholder="예: 5,000만원 또는 1.2억원"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-slate-400 uppercase tracking-wider block text-[10px]">수주 예상 성공률 (%)</label>
+                  <input 
+                    type="number"
+                    min="0"
+                    max="100"
+                    required
+                    value={editingAccumulated.dealProbability}
+                    onChange={(e) => setEditingAccumulated({ ...editingAccumulated, dealProbability: e.target.value })}
+                    placeholder="예: 70"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none font-bold text-slate-800 focus:border-indigo-500 focus:bg-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingAccumulated(null)}
+                  className="flex-1 py-3 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold transition cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl font-bold transition shadow-md shadow-indigo-100 cursor-pointer animate-pulse"
+                >
+                  과거 이력 저장 및 KPI 업데이트
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

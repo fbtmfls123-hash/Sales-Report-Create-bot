@@ -29,7 +29,19 @@ export default function App() {
   const [reportType, setReportType] = useState<string>("1");
   const [clients, setClients] = useState<ClientReport[]>([]);
   const [currentClientIndex, setCurrentClientIndex] = useState<number>(0);
+  const [sessionClientIds, setSessionClientIds] = useState<string[]>([]);
   
+  // Track all client IDs that have been part of the current session
+  useEffect(() => {
+    if (clients.length > 0) {
+      const ids = clients.map(c => c.id).filter(Boolean) as string[];
+      setSessionClientIds(prev => {
+        const unique = new Set([...prev, ...ids]);
+        return Array.from(unique);
+      });
+    }
+  }, [clients]);
+
   // Dialog state machine
   // 'REPORT_TYPE' -> 'CLIENT_COUNT' -> 'CONFIRM_PARSED_CLIENTS' -> 'CLIENT_INTERVIEW_LOOP' -> 'REFINING_JARGON' -> 'CONFIRMATION' -> 'FINAL_OUTPUT'
   const [currentStep, setCurrentStep] = useState<string>("REPORT_TYPE");
@@ -57,15 +69,18 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-  // Save reports to accumulated logs in localStorage when completed
+  // Save reports to accumulated logs in localStorage when completed or updated
   useEffect(() => {
-    if (isCompleted && clients.length > 0) {
+    if (isCompleted) {
       try {
         const storedStr = localStorage.getItem("crm_accumulated_reports") || "[]";
         const accumulated = JSON.parse(storedStr);
         
-        // Create formatted records to accumulate
-        const newReports = clients.map(client => {
+        // 1. Filter out any records that belong to the current session (using sessionClientIds)
+        const historicalOnly = accumulated.filter((r: any) => !sessionClientIds.includes(r.id));
+        
+        // 2. Map current clients into formatted accumulated records
+        const currentSessionReports = clients.map(client => {
           let parsedProb = 0;
           let parsedAmt = 0;
           
@@ -88,25 +103,20 @@ export default function App() {
             dealAmountNum: parsedAmt,
             dealProbability: parsedProb,
             claimSeverity: client.claimSeverity || "경미",
-            date: new Date().toLocaleDateString("ko-KR"),
-            timestamp: Date.now()
+            date: client.date || new Date().toLocaleDateString("ko-KR"),
+            timestamp: client.timestamp || Date.now()
           };
         });
 
-        // Merge and avoid duplicate client IDs
-        const merged = [...accumulated];
-        newReports.forEach(r => {
-          if (!merged.some(m => m.id === r.id)) {
-            merged.push(r);
-          }
-        });
+        // 3. Merge historical records and current session records
+        const merged = [...historicalOnly, ...currentSessionReports];
 
         localStorage.setItem("crm_accumulated_reports", JSON.stringify(merged));
       } catch (e) {
         console.error("Failed to accumulate crm reports:", e);
       }
     }
-  }, [isCompleted, clients]);
+  }, [isCompleted, clients, sessionClientIds]);
 
   // Initialize Step 1 on page load without waiting
   useEffect(() => {
@@ -926,6 +936,7 @@ export default function App() {
   const handleResetFlow = () => {
     setReportType("1");
     setClients([]);
+    setSessionClientIds([]);
     setCurrentClientIndex(0);
     setCurrentStep("REPORT_TYPE");
     setCurrentClientStep("NAME_PERSON");
@@ -1149,6 +1160,7 @@ export default function App() {
             clients={clients}
             isCompleted={isCompleted}
             onReset={handleResetFlow}
+            onUpdateClients={setClients}
           />
         </section>
 

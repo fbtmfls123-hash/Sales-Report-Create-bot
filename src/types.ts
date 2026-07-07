@@ -19,6 +19,8 @@ export interface ClientReport {
   outlier?: string;       // Step 5
   jargon?: RefinedJargon; // Step 6
   isCompleted?: boolean;
+  date?: string;
+  timestamp?: number;
 }
 
 export interface RefinedJargon {
