@@ -1,0 +1,6 @@
+{
+  "name": "대화형 영업보고서 생성 봇",
+  "description": "B2B 실전 영업 및 CRM 데이터 고도화를 위한 대화형 현업 영업보고서 생성 봇입니다. 파편적인 현장 정보를 고도로 정제된 비즈니스 실무 워딩으로 변환해 줍니다.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
